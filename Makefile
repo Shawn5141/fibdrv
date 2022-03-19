@@ -24,6 +24,12 @@ load:
 unload:
 	sudo rmmod $(TARGET_MODULE) || true >/dev/null
 
+plot: all
+	$(MAKE) unload
+	$(MAKE) load
+	@python3 scripts/driver.py
+	$(MAKE) unload
+
 client: client.c
 	$(CC) -o $@ $^
 
