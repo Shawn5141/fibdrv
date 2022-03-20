@@ -9,6 +9,7 @@
 #include <linux/mutex.h>
 #include <linux/uaccess.h>
 
+#include "bign.h"
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -140,6 +141,21 @@ static long long fib_sequence_fdouble(unsigned int k)
     }
     return a;
 }
+
+// static bn fib_sequence_bn(unsigned int k)
+// {
+//     bn *f[k + 2];
+
+//     bn_init(f[0], 0);
+//     bn_init(f[1], 1);
+
+
+//     for (int i = 2; i <= k; i++) {
+//         bn_add(f[i], *f[i - 1], *f[i - 2]);
+//     }
+
+//     return *f[k];
+// }
 
 static long long fib_time_proxy(unsigned int k)
 {
