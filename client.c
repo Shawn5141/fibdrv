@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,8 +54,11 @@ int main()
         goto close_fib;
     }
     // Set fib method
-    write(fd_fib, "0", 2);
+    char *fib_index = "2";
+    write(fd_fib, fib_index, 2);
     close(fd_fib);
+
+    bool bn_enable = ((unsigned int) (fib_index - '0')) > 1;
 
     FILE *fp = fopen("./plot/plot_input", "w");
 
@@ -65,10 +69,18 @@ int main()
         clock_gettime(CLOCK_MONOTONIC, &t2);
         ssize_t kt = write(fd, NULL, 0);
         long long utime = elapsed(&t1, &t2);
-        printf("Reading from " FIB_DEV
-               " at offset %d, returned the sequence "
-               "%lld. utime %lld, ktime %ld\n",
-               i, sz, utime, kt);
+        if (bn_enable) {
+            printf("Reading from " FIB_DEV
+                   " at offset %d, returned the sequence "
+                   "%s. utime %lld, ktime %ld\n",
+                   i, buf, utime, kt);
+        } else {
+            printf("Reading from " FIB_DEV
+                   " at offset %d, returned the sequence "
+                   "%lld. utime %lld, ktime %ld\n",
+                   i, sz, utime, kt);
+        }
+
         fprintf(fp, "%d %lld %ld %lld\n", i, utime, kt, utime - kt);
     }
 

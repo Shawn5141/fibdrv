@@ -21,7 +21,7 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 92
+#define MAX_LENGTH 1000
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
@@ -39,10 +39,17 @@ enum {
 };
 static int fib_index = FIB_SEQUENCE;
 
+static bool bn_enable = false;
+
 typedef long long (*fib_table)(unsigned int);
 static long long (**fib_exec)(unsigned int);
 static long long (*fib_time_proxy_p)(unsigned int);
 static long long (*fib_p)(unsigned int);
+
+typedef char *(*fib_bn_table)(unsigned int);
+static char *(**fib_bn_exec)(unsigned int);
+static char *(*fib_bn_time_proxy_p)(unsigned int);
+static char *(*fib_bn_p)(unsigned int);
 
 // ktime related utils function
 static ssize_t ktime_measure_show(struct device *dev,
@@ -58,7 +65,12 @@ static ssize_t ktime_measure_store(struct device *dev,
                                    size_t count)
 {
     ktime_enable = (bool) (buf[0] - '0');
+
+
     fib_exec = ktime_enable ? &fib_time_proxy_p : &fib_p;
+    fib_bn_exec = ktime_enable ? &fib_bn_time_proxy_p : &fib_bn_p;
+
+
     return count;
 }
 static DEVICE_ATTR(ktime_measure,
@@ -89,8 +101,8 @@ static DEVICE_ATTR(fib_method,
                    fib_method_store);
 
 static struct attribute *attrs[] = {
-    &dev_attr_ktime_measure.attr,
     &dev_attr_fib_method.attr,
+    &dev_attr_ktime_measure.attr,
     NULL,
 };
 
@@ -142,20 +154,19 @@ static long long fib_sequence_fdouble(unsigned int k)
     return a;
 }
 
-// static bn fib_sequence_bn(unsigned int k)
-// {
-//     bn *f[k + 2];
+static char *fib_sequence_bn(unsigned int k)
+{
+    bn f[k + 2];
+    bn_init(&f[0], 0);
+    bn_init(&f[1], 1);
 
-//     bn_init(f[0], 0);
-//     bn_init(f[1], 1);
 
-
-//     for (int i = 2; i <= k; i++) {
-//         bn_add(f[i], *f[i - 1], *f[i - 2]);
-//     }
-
-//     return *f[k];
-// }
+    for (int i = 2; i <= k; i++) {
+        bn_add(&f[i], f[i - 1], f[i - 2]);
+    }
+    char *ret = bn_to_string(f[k]);
+    return ret;
+}
 
 static long long fib_time_proxy(unsigned int k)
 {
@@ -165,19 +176,36 @@ static long long fib_time_proxy(unsigned int k)
     return result;
 }
 
+static char *fib_bn_time_proxy(unsigned int k)
+{
+    kt = ktime_get();
+    char *result = fib_bn_p(k);
+    kt = ktime_sub(ktime_get(), kt);
+    return result;
+}
+
 static fib_table fib_method[] = {fib_sequence, fib_sequence_fdouble};
+static fib_bn_table fib_bn_method[] = {fib_sequence_bn};
 
 static inline void fib_method_set(unsigned int index)
 {
     fib_index = index;
-    fib_p = fib_method[fib_index];
-    printk("fib method: %u\n", fib_index);
+    int fib_method_len = sizeof(fib_method) / sizeof(fib_method[0]);
+    int fib_bn_method_len = sizeof(fib_bn_method) / sizeof(fib_bn_method[0]);
+    if (fib_index > fib_method_len + fib_bn_method_len) {
+        return;
+    }
+    bn_enable = (fib_index >= fib_method_len) ? true : false;
+    if (!bn_enable) {
+        fib_p = fib_method[fib_index];
+    } else {
+        fib_bn_p = fib_bn_method[index - fib_method_len];
+    }
 }
 
 static int fib_open(struct inode *inode, struct file *file)
 {
     if (!mutex_trylock(&fib_mutex)) {
-        printk(KERN_ALERT "fibdrv is in use");
         return -EBUSY;
     }
     return 0;
@@ -197,6 +225,14 @@ static ssize_t fib_read(struct file *file,
 {
     // int len = strlen(fibnum);
     // copy_to_user(buf, fibnum, (len + 1) * sizeof(char));
+    if (bn_enable) {
+        char *fibnum = (*fib_bn_exec)((unsigned) *offset);
+        int len = strlen(fibnum);
+        copy_to_user(buf, fibnum, (len + 1) * sizeof(char));
+        kfree(fibnum);
+
+        return (ssize_t) len;
+    }
 
     return (ssize_t)(*fib_exec)((unsigned) *offset);
 }
@@ -295,7 +331,13 @@ static int __init init_fib_dev(void)
         goto failed_create_group;
     }
     fib_p = fib_method[fib_index];
+    // if (!bn_enable) {
     fib_time_proxy_p = &fib_time_proxy;
+    //}
+    // else {
+    fib_bn_time_proxy_p = &fib_bn_time_proxy;
+    //}
+
     return rc;
 failed_create_group:
     device_destroy(fib_class, fib_dev);

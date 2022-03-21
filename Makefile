@@ -35,13 +35,14 @@ plot: all
 	$(MAKE) unload
 	$(MAKE) load
 	sudo taskset -c $(CPUID) ./client
-	mkdir -p plot
+
 	gnuplot ./scripts/plot.gp
 	$(MAKE) unload
 	$(MAKE) restore
 
 client: client.c
-	$(CC) -o $@ $^
+	mkdir -p plot
+	$(CC) -g -o $@ $^
 
 PRINTF = env printf
 PASS_COLOR = \e[32;01m
