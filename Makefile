@@ -36,11 +36,12 @@ plot: all
 	$(MAKE) load
 	sudo taskset -c $(CPUID) ./client
 
+	gnuplot ./scripts/compare_fast_double.gp
 	gnuplot ./scripts/plot.gp
 	$(MAKE) unload
 	$(MAKE) restore
 
-client: client.c
+client: client.c mlock.c
 	mkdir -p plot
 	$(CC) -g -o $@ $^
 

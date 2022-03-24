@@ -1,4 +1,6 @@
+#include <assert.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,10 +9,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "mlock.h"
+
 #define FIB_DEV "/dev/fibonacci"
 #define KTIME_ENABLE "/sys/class/fibonacci/fibonacci/ktime_measure"
 #define FIB_METHOD "/sys/class/fibonacci/fibonacci/fib_method"
 
+#define PRE_ALLOCATION_SIZE \
+    (64 * 1024 * 1024)  // ulimit -l to check the maxinum size may lock into
+                        // memory in process
 
 
 static inline long long elapsed(struct timespec *t1, struct timespec *t2)
@@ -21,6 +28,14 @@ static inline long long elapsed(struct timespec *t1, struct timespec *t2)
 
 int main()
 {
+    // mlock
+    configure_malloc_behavior();
+    /* malloc and touch generated */
+    reserve_process_memory(PRE_ALLOCATION_SIZE);
+    check_pagefault(INT_MAX, INT_MAX);
+    /* 2nd malloc and use gnenrated */
+    reserve_process_memory(PRE_ALLOCATION_SIZE);
+    assert(check_pagefault(0, 0));
     int err = 0;
     long long sz;
     char buf[1];
@@ -53,12 +68,12 @@ int main()
         fd = fd_fib;
         goto close_fib;
     }
-    // Set fib method
-    char *fib_index = "2";
+    // // Set fib method
+    char *fib_index = "1";
     write(fd_fib, fib_index, 2);
-    close(fd_fib);
+    // close(fd_fib);
 
-    bool bn_enable = ((unsigned int) (fib_index - '0')) > 1;
+    bool bn_enable = false;
 
     FILE *fp = fopen("./plot/plot_input", "w");
 
@@ -82,6 +97,43 @@ int main()
         }
 
         fprintf(fp, "%d %lld %ld %lld\n", i, utime, kt, utime - kt);
+    }
+
+    close(fd);
+    int fd1 = open(FIB_DEV, O_RDWR);
+    if (fd1 < 0) {
+        perror("Failed to open character device");
+        err = 1;
+        goto close_fib;
+    }
+    // Set fib method 2
+    fib_index = "2";
+    write(fd_fib, fib_index, 2);
+    close(fd_fib);
+    FILE *fp1 = fopen("./plot/plot_input1", "w");
+
+    struct timespec t3, t4;
+
+    for (int i = 0; i <= offset; i++) {
+        lseek(fd1, i, SEEK_SET);
+        clock_gettime(CLOCK_MONOTONIC, &t3);
+        sz = read(fd1, buf, 1);
+        clock_gettime(CLOCK_MONOTONIC, &t4);
+        ssize_t kt = write(fd1, NULL, 0);
+        long long utime = elapsed(&t3, &t4);
+        if (bn_enable) {
+            printf("Reading from " FIB_DEV
+                   " at offset %d, returned the sequence "
+                   "%s. utime %lld, ktime %ld\n",
+                   i, buf, utime, kt);
+        } else {
+            printf("Reading from " FIB_DEV
+                   " at offset %d, returned the sequence "
+                   "%lld. utime %lld, ktime %ld\n",
+                   i, sz, utime, kt);
+        }
+
+        fprintf(fp1, "%d %lld %ld %lld\n", i, utime, kt, utime - kt);
     }
 
 close_fib:

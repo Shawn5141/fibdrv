@@ -21,7 +21,9 @@ MODULE_VERSION("0.1");
 /* MAX_LENGTH is set to 92 because
  * ssize_t can't fit the number > 92
  */
-#define MAX_LENGTH 1000
+#define MAX_LENGTH 92
+
+#define clz(x) __builtin_clzll(x)
 
 static dev_t fib_dev = 0;
 static struct cdev *fib_cdev;
@@ -151,6 +153,31 @@ static long long fib_sequence_fdouble(unsigned int k)
             b = d;       //   F(n_j + 1) = F(2k + 1)
         }
     }
+    printk("ret: %llu", a);
+    return a;
+}
+
+static long long fib_sequence_fdouble_clz(unsigned int k)
+{
+    long long a = 0;  // F(0) = 0
+    long long b = 1;  // F(1) = 1
+
+    for (int mask = 1 << (sizeof(long long) * 8 - 1 - clz(k)); mask > 0;
+         mask >>= 1) {  // Run h times!
+        // Let j = h-i (looping from i = 1 to i = h), n_j = floor(n / 2^j) = n
+        // >> j (n_j = n when j = 0), k = floor(n_j / 2), then a = F(k), b =
+        // F(k+1) now.
+        long long c = a * (2 * b - a);  // F(2k) = F(k) * [ 2 * F(k+1) – F(k) ]
+        long long d = a * a + b * b;    // F(2k+1) = F(k)^2 + F(k+1)^2
+
+        if (mask & k) {  // n_j is odd: k = (n_j-1)/2 => n_j = 2k + 1
+            a = d;       //   F(n_j) = F(2k + 1)
+            b = c + d;   //   F(n_j + 1) = F(2k + 2) = F(2k) + F(2k + 1)
+        } else {         // n_j is even: k = n_j/2 => n_j = 2k
+            a = c;       //   F(n_j) = F(2k)
+            b = d;       //   F(n_j + 1) = F(2k + 1)
+        }
+    }
     return a;
 }
 
@@ -184,7 +211,8 @@ static char *fib_bn_time_proxy(unsigned int k)
     return result;
 }
 
-static fib_table fib_method[] = {fib_sequence, fib_sequence_fdouble};
+static fib_table fib_method[] = {fib_sequence, fib_sequence_fdouble,
+                                 fib_sequence_fdouble_clz};
 static fib_bn_table fib_bn_method[] = {fib_sequence_bn};
 
 static inline void fib_method_set(unsigned int index)
@@ -192,6 +220,8 @@ static inline void fib_method_set(unsigned int index)
     fib_index = index;
     int fib_method_len = sizeof(fib_method) / sizeof(fib_method[0]);
     int fib_bn_method_len = sizeof(fib_bn_method) / sizeof(fib_bn_method[0]);
+    printk("fib_index %d > %d\n", fib_index,
+           fib_method_len + fib_bn_method_len);
     if (fib_index > fib_method_len + fib_bn_method_len) {
         return;
     }
